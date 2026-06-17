@@ -23,6 +23,7 @@ class Payroll extends Model
         'net_salary',
         'status',
         'processed_at',
+        'receipt_number',
     ];
 
     protected $casts = [

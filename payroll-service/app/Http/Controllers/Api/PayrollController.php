@@ -4,12 +4,26 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\Payroll;
+use App\Services\SsoService;
+use App\Services\SoapAuditService;
+use App\Services\RabbitMqService;
 use Illuminate\Http\Request;
 use Carbon\Carbon;
 use OpenApi\Attributes as OA;
 
 class PayrollController extends Controller
 {
+    protected SsoService $sso;
+    protected SoapAuditService $soap;
+    protected RabbitMqService $rabbitmq;
+
+    public function __construct(SsoService $sso, SoapAuditService $soap, RabbitMqService $rabbitmq)
+    {
+        $this->sso      = $sso;
+        $this->soap     = $soap;
+        $this->rabbitmq = $rabbitmq;
+    }
+
     #[OA\Get(
         path: "/api/v1/payrolls",
         summary: "Menampilkan seluruh data penggajian",
@@ -115,11 +129,18 @@ class PayrollController extends Controller
             'bonus'         => 'nullable|numeric|min:0',
         ]);
 
+        // Hitung gaji
         $workDays  = 22;
         $bonus     = $validated['bonus'] ?? 0;
         $deduction = ($validated['base_salary'] / $workDays) * $validated['total_absent'];
         $netSalary = $validated['base_salary'] - $deduction + $bonus;
+        $now       = Carbon::now();
 
+        // Step 1: Login SSO
+        $ssoResult = $this->sso->loginWithApiKey();
+        $token     = $ssoResult['success'] ? $ssoResult['token'] : null;
+
+        // Step 2: Simpan data penggajian
         $payroll = Payroll::create([
             'employee_id'   => $validated['employee_id'],
             'employee_name' => $validated['employee_name'],
@@ -133,16 +154,50 @@ class PayrollController extends Controller
             'bonus'         => $bonus,
             'net_salary'    => round($netSalary, 2),
             'status'        => 'processed',
-            'processed_at'  => Carbon::now(),
+            'processed_at'  => $now,
         ]);
+
+        $receiptNumber = null;
+
+        // Step 3: SOAP Audit (jika SSO berhasil)
+        if ($token) {
+            $soapResult = $this->soap->auditPayroll([
+                'employee_id'   => $payroll->employee_id,
+                'employee_name' => $payroll->employee_name,
+                'period_month'  => $payroll->period_month,
+                'period_year'   => $payroll->period_year,
+                'base_salary'   => $payroll->base_salary,
+                'deduction'     => $payroll->deduction,
+                'bonus'         => $payroll->bonus,
+                'net_salary'    => $payroll->net_salary,
+                'processed_at'  => $now->toDateTimeString(),
+            ], $token);
+
+            if ($soapResult['success']) {
+                $receiptNumber = $soapResult['receipt_number'];
+                $payroll->update(['receipt_number' => $receiptNumber]);
+            }
+
+            // Step 4: RabbitMQ Publish
+            $this->rabbitmq->publishPayrollProcessed([
+                'employee_id'    => $payroll->employee_id,
+                'employee_name'  => $payroll->employee_name,
+                'period_month'   => $payroll->period_month,
+                'period_year'    => $payroll->period_year,
+                'net_salary'     => $payroll->net_salary,
+                'receipt_number' => $receiptNumber,
+            ], $token);
+        }
 
         return response()->json([
             'status'  => 'success',
             'message' => 'Payroll processed successfully',
-            'data'    => $payroll,
+            'data'    => $payroll->fresh(),
             'meta'    => [
-                'service_name' => 'Payroll-Service',
-                'api_version'  => 'v1',
+                'service_name'   => 'Payroll-Service',
+                'api_version'    => 'v1',
+                'sso_connected'  => $token !== null,
+                'soap_audited'   => $receiptNumber !== null,
             ],
         ], 201);
     }
