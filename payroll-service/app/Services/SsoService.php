@@ -18,6 +18,7 @@ class SsoService
         try {
             $response = Http::post("{$this->baseUrl}/api/v1/auth/token", [
                 'api_key' => env('SSO_API_KEY', 'KEY-MHS-238'),
+                'nim'     => env('IAE_KEY', '102022400173'),
             ]);
 
             if ($response->successful()) {
