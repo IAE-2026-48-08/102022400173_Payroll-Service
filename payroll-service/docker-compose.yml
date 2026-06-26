@@ -7,8 +7,28 @@ services:
     restart: unless-stopped
     ports:
       - "8080:8000"
-    volumes:
-      - .:/var/www
+    environment:
+      - APP_NAME=Laravel
+      - APP_ENV=local
+      - APP_KEY=base64:iYSsiH7uuh6sBHJMTsGr8gszun3V2+DtrJLDQNIzAVY=
+      - APP_DEBUG=true
+      - APP_URL=http://localhost
+      - DB_CONNECTION=mysql
+      - DB_HOST=db
+      - DB_PORT=3306
+      - DB_DATABASE=payroll_db
+      - DB_USERNAME=payroll_user
+      - DB_PASSWORD=secret
+      - IAE_KEY=102022400173
+      - SSO_URL=https://iae-sso.virtualfri.id
+      - SSO_EMAIL=warga34@ktp.iae.id
+      - SSO_PASSWORD=KtpDigital2026!
+      - SSO_API_KEY=KEY-MHS-238
+      - SOAP_URL=https://iae-sso.virtualfri.id/soap/v1/audit
+      - RABBITMQ_URL=https://iae-sso.virtualfri.id/api/v1/messages/publish
+      - L5_SWAGGER_GENERATE_ALWAYS=true
+    depends_on:
+      - db
     networks:
       - payroll_network
 
@@ -17,10 +37,10 @@ services:
     container_name: payroll_db
     restart: unless-stopped
     environment:
-      MYSQL_DATABASE: payroll_db
-      MYSQL_ROOT_PASSWORD: root
-      MYSQL_PASSWORD: secret
-      MYSQL_USER: payroll_user
+      - MYSQL_DATABASE=payroll_db
+      - MYSQL_ROOT_PASSWORD=root
+      - MYSQL_PASSWORD=secret
+      - MYSQL_USER=payroll_user
     ports:
       - "3306:3306"
     volumes:
